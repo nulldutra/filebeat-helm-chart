@@ -1,0 +1,17 @@
+{{- if .Values.filebeatConfig }}
+---
+apiVersion: {{ .Values.apiVersions.configMap }}
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: {{ template "filebeat.namespace" . }}
+  labels:
+    k8s-app: filebeat
+data:
+{{- if eq .Values.configType "standard" }}
+{{- range $path, $config := .Values.filebeatConfig.standardConfig }}
+  {{ $path }}: |-
+{{ $config | indent 4 -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

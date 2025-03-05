@@ -1,0 +1,112 @@
+image: docker.elastic.co/beats/filebeat
+imageTag: 7.13.2
+nameOverride: ""
+namespaceOverride: ""
+fullnameOverride: filebeat
+
+apiVersions:
+  configMap: v1
+  daemonset: apps/v1
+  clusterRoleBinding: rbac.authorization.k8s.io/v1
+  clusterRole: rbac.authorization.k8s.io/v1
+  serviceAccount: v1
+  secret: v1
+
+managedServiceAccount: true
+
+clusterRoleRules:
+- apiGroups: [""]
+  resources:
+  - namespaces
+  - pods
+  - nodes
+  verbs:
+  - get
+  - watch
+  - list
+
+configType: standard
+
+filebeatConfig:
+  standardConfig:
+    filebeat.yml: |-
+      filebeat.inputs:
+      - type: container
+        paths:
+          - /var/log/containers/*.log
+          - /var/lib/docker/containers/*/*.log
+        exclude_files:
+          - /var/lib/docker/containers/.*/container-cached.log
+        processors:
+          - add_kubernetes_metadata:
+              host: ${NODE_NAME}
+              matchers:
+              - logs_path:
+                  logs_path: "/var/log/containers/"
+
+          - add_cloud_metadata: ~
+
+          - drop_event:
+              when:
+                or:
+                  - equals:
+                      kubernetes.namespace: filebeat
+          # Drop PID Events (K8S and ECS)
+          - drop_event:
+              when:
+                or:
+                  - contains:
+                      message: "PID"
+                  - contains:
+                      message: "pid"
+                  - contains:
+                      messsage: "IP 127.0.0.1"
+                  - contains:
+                      message: "ping provider status:200"
+                  - contains:
+                      message: "ping provider status:401"
+          - drop_fields:
+              fields: ["container.id", "container.runtime", "input.type"]
+              ignore_missing: true
+
+      #fields:
+      #  cluster: 
+
+      fields_under_root: ${FIELDS_UNDER_ROOT}
+      ignore_older: ${IGNORE_OLDER}
+      registry_file: /var/lib/filebeat/registry
+      output:
+        elasticsearch:
+          hosts: ["192.168.88.246:9200"]
+
+serviceAccount:
+  create: true
+  name: filebeat
+
+terminationGracePeriod: 30
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+daemonset:
+  ignoreOlder: 3h
+  fieldsUnderRoot: true
+  securityContext:
+    runAsUser: 0
+  resources:
+    limits:
+      memory: 200Mi
+    requests:
+      cpu: 100m
+      memory: 100Mi
+  tolerations: {}
+  priorityClassName: ""
+  volumes:
+    - name: config
+      configMap:
+        defaultMode: 416
+        name: filebeat-config
+  volumeMounts:
+    - name: config
+      mountPath: /etc/filebeat.yml
+      readOnly: true
+      subPath: filebeat.yml
